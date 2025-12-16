@@ -17,7 +17,7 @@ SHEET_NAME = "call_queue"
 #API CALL
 url = "https://api.vapi.ai/call/phone"
 
-TO_PHONE_NUMBER = "+917045019544"
+TO_PHONE_NUMBER = "YOUR NUMBER"
 
 # VALIDATIONS
 if not VAPI_API_KEY or not ASSISTANT_ID or not PHONE_NUMBER_ID:
@@ -86,4 +86,5 @@ for _, rows in df.iterrows():
 
     finally:
         print("Complete with calling Sam!")
+
         break
