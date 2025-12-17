@@ -18,12 +18,10 @@ SHEET_NAME = "call_queue"
 # BATCH CONFIG
 BATCH_SIZE = 2          # 2 calls at same time
 TOTAL_BATCHES = 3       # 3 batches
-BATCH_DELAY_SECONDS = 120  # 2 minutes gap
+BATCH_DELAY_SECONDS = 30  # 30 seconds gap
 
-#API CALL
+# VAPI API CALL
 url = "https://api.vapi.ai/call/phone"
-
-TO_PHONE_NUMBER = "+917045019544"
 
 # VALIDATIONS
 if not VAPI_API_KEY or not ASSISTANT_ID or not PHONE_NUMBER_ID:
@@ -34,11 +32,24 @@ if not VAPI_API_KEY or not ASSISTANT_ID or not PHONE_NUMBER_ID:
 
 # Helpers
 def normalize_phone(phone: str) -> str:
-    phone = str(phone).strip().replace(" ","").replace("-", "")
+    phone = str(phone).strip()
+
+    # Catch scientific notation early
+    if "E+" in phone or "e+" in phone:
+        raise ValueError(f"Invalid phone number from Excel: {phone}")
+
+    phone = phone.replace(" ", "").replace("-", "")
+
     if not phone.startswith("+"):
         phone = "+" + phone
-    return phone
 
+    if not phone[1:].isdigit():
+        raise ValueError(f"Non-numeric phone number: {phone}")
+
+    if len(phone) < 11:
+        raise ValueError(f"Phone number too short: {phone}")
+
+    return phone
 # LOAD EXCEL
 df = pd.read_excel(EXCEL_FILE, sheet_name=SHEET_NAME, dtype=str)
 
@@ -104,6 +115,7 @@ async def make_call(rows):
 # PROCESS SINGLE BATCH
 async def process_batch(batch_df, batch_number):
     print(f"\n Starting Batch {batch_number} ({len(batch_df)} concurrent calls)")
+    print(batch_df[["user_name", "phone_number"]])
 
     tasks = []
     for _, row in batch_df.iterrows():
