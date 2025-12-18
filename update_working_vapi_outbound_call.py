@@ -22,7 +22,7 @@ TOTAL_BATCHES = 3       # 3 batches
 BATCH_DELAY_SECONDS = 30  # 30 seconds gap
 
 # VAPI API CALL
-url = "https://api.vapi.ai/call/phone"
+VAPI_URL = "https://api.vapi.ai/call/phone"
 
 # VALIDATIONS
 if not VAPI_API_KEY or not ASSISTANT_ID or not PHONE_NUMBER_ID:
@@ -55,6 +55,16 @@ def normalize_phone(phone: str) -> str:
     except Exception as e:
         print("Error in normalising phone number. ", e )
 
+def is_valid_for_call(status_value) -> bool:
+    try:
+        if pd.isna(status_value):
+            return True
+        status = str(status_value).strip().lower()
+        return status == "" or status == "queued"
+
+    except Exception as e:
+        print("Error in validating status. ", e )
+
 # LOAD EXCEL
 try:
     df = pd.read_excel(EXCEL_FILE, sheet_name=SHEET_NAME, dtype=str)
@@ -63,15 +73,13 @@ try:
     print(df)
     print("-" * 60)
 
-    queue_df = df[df["status"].str.lower()=="queued"].reset_index(drop=True)
-    # queue_df = df[df["status"].str.lower()=="queued" or df["status"].str.lower()== None ].reset_index(drop=True)
-except Exception as e:
-    print("Unable to load Excel File. ", e )
+    queue_df = df[df["status"].apply(is_valid_for_call)].reset_index(drop=True)
 
-try:
     if queue_df.empty:
-        print("NO Queued records found")
+        print("No Valid records found for Call")
         exit()
+
+    queue_df = queue_df.head(BATCH_SIZE * TOTAL_BATCHES)
 
     batches = [
         queue_df.iloc[i:i + BATCH_SIZE]
@@ -113,7 +121,7 @@ async def make_call(rows):
 
         try:
             with httpx.Client(timeout= 30) as client:
-                response = client.post(url, json=payload, headers=headers)
+                response = client.post(url = VAPI_URL , json=payload, headers=headers)
             
             print("HTTP Status: ", response.status_code)
             print("Response JSON")
