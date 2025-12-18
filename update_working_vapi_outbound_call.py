@@ -5,6 +5,7 @@ import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 
+# Load Dotenv
 load_dotenv()
 
 # Required Configurations
@@ -15,15 +16,15 @@ PHONE_NUMBER_ID =  os.getenv("PHONE_NUMBER_ID")
 EXCEL_FILE = "call_data.xlsx"
 SHEET_NAME = "call_queue"
 
-# BATCH CONFIG
+# Batch Config
 BATCH_SIZE = 2          # 2 calls at same time
 TOTAL_BATCHES = 3       # 3 batches
 BATCH_DELAY_SECONDS = 30  # 30 seconds gap
 
-# VAPI API CALL
+# Vapi api call
 url = "https://api.vapi.ai/call/phone"
 
-# VALIDATIONS
+# Validation
 if not VAPI_API_KEY or not ASSISTANT_ID or not PHONE_NUMBER_ID:
     raise RuntimeError(
         "Missing VAPI credentials"
@@ -39,7 +40,6 @@ def normalize_phone(phone: str) -> str:
         raise ValueError(f"Invalid phone number from Excel: {phone}")
 
     phone = phone.replace(" ", "").replace("-", "")
-
     if not phone.startswith("+"):
         phone = "+" + phone
 
@@ -50,7 +50,8 @@ def normalize_phone(phone: str) -> str:
         raise ValueError(f"Phone number too short: {phone}")
 
     return phone
-# LOAD EXCEL
+    
+# Loading Excel Sheet
 df = pd.read_excel(EXCEL_FILE, sheet_name=SHEET_NAME, dtype=str)
 
 print("\n📄 Excel Data Read Successfully")
@@ -68,7 +69,7 @@ batches = [
     for i in range(0, len(queue_df), BATCH_SIZE)
 ]
 
-# MAKE SINGLE CALL
+# Making Single Call
 async def make_call(rows):
     phone = normalize_phone(rows["phone_number"])
 
@@ -112,7 +113,7 @@ async def make_call(rows):
     finally:
         print("Complete with calling Sam!")
 
-# PROCESS SINGLE BATCH
+# Processing Single Batch
 async def process_batch(batch_df, batch_number):
     print(f"\n Starting Batch {batch_number} ({len(batch_df)} concurrent calls)")
     print(batch_df[["user_name", "phone_number"]])
@@ -125,7 +126,7 @@ async def process_batch(batch_df, batch_number):
 
     print(f"Batch {batch_number} completed")
 
-#MAIN EXECUTION
+# Main Execution
 async def main():
     for idx, batch in enumerate(batches[:TOTAL_BATCHES],start=1):
         await process_batch(batch, idx)
@@ -136,5 +137,6 @@ async def main():
 
     print("\n All Batches copmleted successfully!")
 
+# Main Run the file
 if __name__ == "__main__":
     asyncio.run(main())
