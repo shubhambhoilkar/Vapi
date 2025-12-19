@@ -2,7 +2,7 @@ import pandas as pd
 import os , random
 import httpx
 import asyncio
-from datetime import datetime , timedelta
+from datetime import datetime , timedelta, timezone
 from dotenv import load_dotenv
 
 #Load Dorenv
@@ -19,7 +19,7 @@ SHEET_NAME = "call_queue"
 # BATCH CONFIG
 BATCH_SIZE = 2          # 2 calls at same time
 TOTAL_BATCHES = 3       # 3 batches
-BATCH_DELAY_SECONDS = 10  # 10 seconds gap
+BATCH_DELAY_SECONDS = 20  # 20 seconds gap
 RETRY_GAP_HOURS = 24 # 24 Hours time gap
 
 # VAPI API CALL
@@ -57,15 +57,41 @@ def normalize_phone(phone: str) -> str:
     except Exception as e:
         print("Error in normalising phone number. ", e )
 
-def is_valid_for_call(status_value) -> bool:
-    try:
-        if pd.isna(status_value):
-            return True
-        status = str(status_value).strip().lower()
-        return status == "" or status == "queued"
+def is_valid_for_call(row):
+    status = str(row.get("status", "")).strip().lower()
+    called_at = parse_utc_datetime(row.get("called_at"))
+    next_try = parse_utc_datetime(row.get("next_try"))
 
-    except Exception as e:
-        print("Error in validating status. ", e )
+    now = datetime.now(timezone.utc)
+
+    # Case 1: Empty or Queued
+    if status == "" or status == "queued" or pd.isna(status):
+        return True
+    
+    if status == "no-response":
+        #condition 1: next_try exist
+        if next_try:
+            return next_try <= now
+        
+        #condition 2: fallback to called_at + 24hours
+        if called_at:
+            retry_time = called_at + timedelta(hours= 24)
+            return retry_time <= now
+    
+    # All Other Statuses:
+    return False    
+
+def parse_utc_datetime(value):
+    if not value or pd.isna(value):
+        return None
+    
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt =  dt.replace(tzinfo=  timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
 
 # LOAD EXCEL
 def load_excel():
@@ -86,7 +112,7 @@ async def dev_update_status_async(sr_no):
 
     # Retry scheduling
     if random_status in ["no-response", "failure", "error"]:
-        next_try = datetime.utcnow() + timedelta(hours = RETRY_GAP_HOURS)
+        next_try = datetime.now(timezone.utc) + timedelta(hours = RETRY_GAP_HOURS)
         df.loc[df["sr_no"].astype(str) == str(sr_no), "next_try"] = next_try.isoformat()
 
         save_excel(df)
@@ -132,7 +158,7 @@ async def make_call(rows):
             
             print("HTTP Status: ", response.status_code)
             print("Response JSON")
-            print("Response received.\n",response.json())
+            print("Response received.\n",response.json(),"\n")
 
             # new code:
             response_data = response.json()
@@ -179,28 +205,31 @@ async def process_batch(batch_df, batch_number):
 
 #MAIN EXECUTION
 async def main():
+    print("Excel Call Scheduler Started.")
     try:
         df = load_excel()
+
         print("\n📄 Excel Data Read Successfully")
         print(df)
         print("-" * 60)
 
-        # queue_df = df[df["status"].apply(is_valid_for_call)].reset_index(drop=True)
-        valid_df = df[df["status"].apply(is_valid_for_call)].reset_index(drop=True)
-        valid_df = valid_df.head(BATCH_SIZE * TOTAL_BATCHES)
-    
+        # old valid_df-> only queued and empty 
+        valid_df = df[df.apply(is_valid_for_call, axis =1)].reset_index(drop= True)
+
         if valid_df.empty:
             print("No Valid records found for Call")
             return 
-
-        # queue_df = queue_df.head(BATCH_SIZE * TOTAL_BATCHES)
-
+        
+        valid_df = valid_df.head(BATCH_SIZE * TOTAL_BATCHES)
+    
         batches = [
             valid_df.iloc[i:i + BATCH_SIZE]
             for i in range(0, len(valid_df), BATCH_SIZE)
         ]
+    
     except Exception as e:
         print("Fail to get the Data", e )
+        return
 
     try:
         for idx, batch in enumerate(batches[:TOTAL_BATCHES],start=1):
