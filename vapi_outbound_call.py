@@ -155,8 +155,7 @@ async def process_batch(batch_df, batch_number):
         tasks = []
         for _, row in batch_df.iterrows():
             tasks.append(make_call(row))
-        # tasks = [make_call(row) for _, row in batch_df.iterrows()]
-
+            
         await asyncio.gather(*tasks)
         print(f"Batch {batch_number} completed")
 
