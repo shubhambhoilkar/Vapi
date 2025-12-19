@@ -55,19 +55,26 @@ def normalize_phone(phone: str) -> str:
 
         return phone
     except Exception as e:
-        print("Error in normalising phone number. ", e )
+        raise ValueError(f"Phone normalization failed: {e}")
 
 def is_valid_for_call(row):
-    status = str(row.get("status", "")).strip().lower()
-    called_at = parse_utc_datetime(row.get("called_at"))
-    next_try = parse_utc_datetime(row.get("next_try"))
+    raw_status = row.get("status", "")
+    status = str(raw_status).strip().lower()
 
-    now = datetime.now(timezone.utc)
+    called_at = parse_naive_datetime(row.get("called_at"))
+    next_try = parse_naive_datetime(row.get("next_try"))
 
-    # Case 1: Empty or Queued
-    if status == "" or status == "queued" or pd.isna(status):
+    now = datetime.now()
+
+    # Empty or Nan or Queued  -> Call
+    if (raw_status is None 
+        or pd.isna(raw_status)
+        or status == ""
+        or status == "nan"
+        or status == "queued"
+    ):
         return True
-    
+
     if status == "no-response":
         #condition 1: next_try exist
         if next_try:
@@ -75,21 +82,24 @@ def is_valid_for_call(row):
         
         #condition 2: fallback to called_at + 24hours
         if called_at:
-            retry_time = called_at + timedelta(hours= 24)
+            retry_time = called_at + timedelta(hours= RETRY_GAP_HOURS)
             return retry_time <= now
+        
+        return False
     
     # All Other Statuses:
-    return False    
+    return False
 
-def parse_utc_datetime(value):
+def parse_naive_datetime(value):
     if not value or pd.isna(value):
         return None
     
     try:
         dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         if dt.tzinfo is None:
-            dt =  dt.replace(tzinfo=  timezone.utc)
-        return dt.astimezone(timezone.utc)
+            dt = dt.astimezone(tz= None).replace(tzinfo=None)
+        
+        return dt
     except Exception:
         return None
 
@@ -112,8 +122,10 @@ async def dev_update_status_async(sr_no):
 
     # Retry scheduling
     if random_status in ["no-response", "failure", "error"]:
-        next_try = datetime.now(timezone.utc) + timedelta(hours = RETRY_GAP_HOURS)
-        df.loc[df["sr_no"].astype(str) == str(sr_no), "next_try"] = next_try.isoformat()
+        next_try = datetime.now() + timedelta(hours = RETRY_GAP_HOURS)
+        df.loc[
+            df["sr_no"].astype(str) == str(sr_no),
+            "next_try"] = next_try.isoformat()
 
         save_excel(df)
         print(
@@ -131,7 +143,6 @@ async def make_call(rows):
         print("Starting VAPI outbound Call Test")
         print("Calling Sam: ")
         print("Name: ", rows["user_name"])
-        print("Email: ", rows["email"])
         print("Phone: ", phone)
 
         payload = {
@@ -195,7 +206,6 @@ async def process_batch(batch_df, batch_number):
         tasks = []
         for _, row in batch_df.iterrows():
             tasks.append(make_call(row))
-        # tasks = [make_call(row) for _, row in batch_df.iterrows()]
 
         await asyncio.gather(*tasks)
         print(f"Batch {batch_number} completed")
@@ -213,7 +223,6 @@ async def main():
         print(df)
         print("-" * 60)
 
-        # old valid_df-> only queued and empty 
         valid_df = df[df.apply(is_valid_for_call, axis =1)].reset_index(drop= True)
 
         if valid_df.empty:
