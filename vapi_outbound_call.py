@@ -93,27 +93,26 @@ async def dev_update_status_async(sr_no):
         print(
             f"DEV UPDATE | sr_no= {sr_no}"
             f"status = {random_status}"
-        )
-        
+        )        
 
 # MAKE SINGLE CALL
 async def make_call(rows):
     try:
         phone = normalize_phone(rows["phone_number"])
+        sr_no = rows["sr_no"]
+
 
         print("Starting VAPI outbound Call Test")
         print("Calling Sam: ")
         print("Name: ", rows["user_name"])
         print("Email: ", rows["email"])
         print("Phone: ", phone)
-        # print("Time: ", datetime.utcnow().isoformat())
 
         payload = {
             "assistantId": ASSISTANT_ID,
             "phoneNumberId": PHONE_NUMBER_ID,
             "customer": {
-                "number" : phone
-            },
+                "number" : phone},
             "assistantOverrides" : {
                 "variableValues" : {
                     "username" : rows["user_name"],
@@ -135,6 +134,21 @@ async def make_call(rows):
             print("Response JSON")
             print("Response received.\n",response.json())
 
+            # new code:
+            response_data = response.json()
+            called_at = response_data.get("createdAt")
+            request_id = response_data.get("id")
+            updated_at = response_data.get("updatedAt")
+
+            df = load_excel()
+            mask = df["sr_no"].astype(str) == str(sr_no)
+
+            df.loc[mask, "called_at"] = called_at
+            df.loc[mask, "request_id"] = request_id
+            df.loc[mask, "updated_at"] = updated_at
+
+            save_excel(df)
+
             # Dev Mode: 
             asyncio.create_task(dev_update_status_async(rows["sr_no"]))
 
@@ -155,7 +169,8 @@ async def process_batch(batch_df, batch_number):
         tasks = []
         for _, row in batch_df.iterrows():
             tasks.append(make_call(row))
-            
+        # tasks = [make_call(row) for _, row in batch_df.iterrows()]
+
         await asyncio.gather(*tasks)
         print(f"Batch {batch_number} completed")
 
@@ -176,7 +191,7 @@ async def main():
     
         if valid_df.empty:
             print("No Valid records found for Call")
-            exit()
+            return 
 
         # queue_df = queue_df.head(BATCH_SIZE * TOTAL_BATCHES)
 
@@ -185,7 +200,7 @@ async def main():
             for i in range(0, len(valid_df), BATCH_SIZE)
         ]
     except Exception as e:
-        print("Fail to get the Data")
+        print("Fail to get the Data", e )
 
     try:
         for idx, batch in enumerate(batches[:TOTAL_BATCHES],start=1):
