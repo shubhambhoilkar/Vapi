@@ -1,19 +1,10 @@
 import pandas as pd
-import os , random
 import httpx
-import asyncio
-from datetime import datetime , timedelta, timezone
-from dotenv import load_dotenv
-
 import gspread
-
-gc = gspread.service_account(filename = "vapi-481604-809d933f10b4.json")
-
-sheet = gc.open_by_key("1M7Nhoh4Ms2K8uj4qcOZogvNSGZUI5OUKCrc1O5hhi0A").worksheet("call_queue")
-print(sheet.get_all_records()[:1])
-
-# Load Dotenv
-load_dotenv()
+import asyncio
+import os , random
+from dotenv import load_dotenv
+from datetime import datetime , timedelta, timezone
 
 # Required Configurations
 VAPI_API_KEY = os.getenv("VAPI_API_KEY")
@@ -24,11 +15,19 @@ GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 EXCEL_FILE = "call_data.xlsx"
 SHEET_NAME = "call_queue"
 
+# Google Sheet Init
+gc = gspread.service_account(filename = "vapi-481604-809d933f10b4.json")
+sheet = gc.open_by_key("1M7Nhoh4Ms2K8uj4qcOZogvNSGZUI5OUKCrc1O5hhi0A").worksheet(SHEET_NAME)
+print(sheet.get_all_records()[:1])
+
+# Load Dotenv
+load_dotenv()
+
 # BATCH CONFIG
-BATCH_SIZE = 2          # 2 calls at same time
-TOTAL_BATCHES = 3       # 3 batches
+BATCH_SIZE = 2            # 2 calls at same time
+TOTAL_BATCHES = 3         # 3 batches
 BATCH_DELAY_SECONDS = 20  # 20 seconds gap
-RETRY_GAP_HOURS = 24 # 24 Hours time gap
+RETRY_GAP_HOURS = 24      # 24 Hours time gap
 
 # VAPI API CALL
 VAPI_URL = "https://api.vapi.ai/call/phone"
@@ -39,10 +38,9 @@ DEV_RANDOM_STATUSES = ["", "failure", "success", "error", "no-response"]
 if not VAPI_API_KEY or not ASSISTANT_ID or not PHONE_NUMBER_ID:
     raise RuntimeError(
         "Missing VAPI credentials"
-        "Set VAPI_API_KEY, ASSISTANT_ID, PHONE_NUMBER_ID"
     )
 
-# Helpers
+# Helpers Functions
 def normalize_phone(phone: str) -> str:
     try:
         phone = str(phone).strip()
@@ -51,7 +49,6 @@ def normalize_phone(phone: str) -> str:
             raise ValueError(f"Invalid phone number from Excel: {phone}")
 
         phone = phone.replace(" ", "").replace("-", "")
-
         if not phone.startswith("+"):
             phone = "+" + phone
 
@@ -65,6 +62,36 @@ def normalize_phone(phone: str) -> str:
     except Exception as e:
         raise ValueError(f"Phone normalization failed: {e}")
     
+def parse_utc_datetime(value):
+    if not value or pd.isna(value):
+        return None
+    
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+        # applying UTC awareness
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)        
+        return dt
+    except Exception:
+        return None
+
+def get_sheet_and_index(sr_no):
+    # sheet = gc.open_by_key(GOOGLE_SHEET_ID).worksheet("call_queue")
+    records = sheet.get_all_records()
+
+    for idx, row in enumerate(records, start=2):
+        if str(row.get("sr_no")) == str(sr_no):
+            return sheet, idx
+    return None, None
+
+def get_col_index(col_name):
+    # sheet = gc.open_by_key(GOOGLE_SHEET_ID).worksheet("call_queue")
+    headers = sheet.row_values(1)
+    return headers.index(col_name) + 1
+
 def get_tries(row):
     try:
         val = row.get("no_of_retry", 0)
@@ -82,10 +109,10 @@ def is_valid_for_call(row):
     if tries > 2:
         return False
 
+    now = datetime.now(timezone.utc)
+
     called_at = parse_utc_datetime(row.get("called_at"))
     next_try = parse_utc_datetime(row.get("next_try"))
-
-    now = datetime.now(timezone.utc)
 
     # Empty or Nan or Queued  -> Call
     if (raw_status is None 
@@ -105,42 +132,24 @@ def is_valid_for_call(row):
         if called_at:
             retry_time = called_at + timedelta(hours= RETRY_GAP_HOURS)
             return retry_time <= now
-        
         return False
     
     # All Other Statuses:
     return False
 
-def parse_utc_datetime(value):
-    if not value or pd.isna(value):
-        return None
-    
-    try:
-        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-
-        # applying UTC awareness
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        else:
-            dt = dt.astimezone(timezone.utc)        
-    
-        return dt
-    except Exception:
-        return None
 
 # Load Google Sheet
 def load_sheet():
     try:
-        sh = gc.open_by_key(GOOGLE_SHEET_ID)
-        print("Opened spreadsheet: ", sh.title)
-
-        sheet = sh.worksheet("call_queue")
-        records = sheet.get_all_records()
-
-        return pd.DataFrame(records)
+        # sh = gc.open_by_key(GOOGLE_SHEET_ID)
+        # print("Opened spreadsheet: ", sh.title)
+        # sheet = sh.worksheet("call_queue")
+        # records = sheet.get_all_records()
+        # return pd.DataFrame(records)
+        return pd.DataFrame(sheet.get_all_records())
 
     except gspread.exceptions.WorksheetNotFound:
-        raise RuntimeError("Worksheet 'call_queue' not found.")
+        raise RuntimeError(f"Worksheet {SHEET_NAME} not found.")
 
     except gspread.exceptions.SpreadsheetNotFound:
         raise RuntimeError("Spreadsheet ID not found or not shared")
@@ -148,14 +157,12 @@ def load_sheet():
     except Exception as e:
         raise RuntimeError(f"Google Sheet Load Failed: {e}")
 
-def save_sheet(df):
-    sheet = gc.open_by_key("GOOGLE_SHEET_ID").worksheet("call_queue")
-    sheet.clear()
-    sheet.update(
-        [df.columns.values.tolist()] + df.films("").values.tolist()
-    )
-    
-
+# def save_sheet(df):
+#     sheet = gc.open_by_key("GOOGLE_SHEET_ID").worksheet("call_queue")
+#     sheet.clear()
+#     sheet.update(
+#         [df.columns.values.tolist()] + df.films("").values.tolist()
+#     )
 
 # Dev: Async Status Update
 async def dev_update_status_async(sr_no):
@@ -181,10 +188,25 @@ async def dev_update_status_async(sr_no):
 
 # MAKE SINGLE CALL
 async def make_call(rows):
+    sheet, row_idx = get_sheet_and_index(sr_no)
+
+    if not sheet:
+        print(f"Row not found in Google Sheet for sr_no ={sr_no}")
+        return
+    
+    current_tries = sheet.cell(row_idx, get_col_index("no_of_tries")).value
+    current_tries = int(current_tries) if current_tries else 0
+
+    updates = {
+        "no_of_tries": current_tries + 1,
+        "called_at": called_at,
+        "update_at" : updated_at,
+        "request_id" : request_id
+    }
+
     try:
         phone = normalize_phone(rows["phone_number"])
         sr_no = rows["sr_no"]
-
 
         print("Starting VAPI outbound Call Test")
         print("Calling Sam: ")
@@ -316,4 +338,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         print("Fail to run the file. ", e )
-      
