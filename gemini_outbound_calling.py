@@ -141,11 +141,6 @@ def is_valid_for_call(row):
 # Load Google Sheet
 def load_sheet():
     try:
-        # sh = gc.open_by_key(GOOGLE_SHEET_ID)
-        # print("Opened spreadsheet: ", sh.title)
-        # sheet = sh.worksheet("call_queue")
-        # records = sheet.get_all_records()
-        # return pd.DataFrame(records)
         return pd.DataFrame(sheet.get_all_records())
 
     except gspread.exceptions.WorksheetNotFound:
@@ -156,13 +151,6 @@ def load_sheet():
 
     except Exception as e:
         raise RuntimeError(f"Google Sheet Load Failed: {e}")
-
-# def save_sheet(df):
-#     sheet = gc.open_by_key("GOOGLE_SHEET_ID").worksheet("call_queue")
-#     sheet.clear()
-#     sheet.update(
-#         [df.columns.values.tolist()] + df.films("").values.tolist()
-#     )
 
 # Dev: Async Status Update
 async def dev_update_status_async(sr_no):
@@ -210,9 +198,7 @@ async def make_call(rows):
 
         print("Starting VAPI outbound Call Test")
         print("Calling Sam: ")
-        # print("Name: ", rows["user_name"])
-        # print("Phone: ", phone)
-        # vapi-ob-call-service@vapi-481604.iam.gserviceaccount.com
+
         payload = {
             "assistantId": ASSISTANT_ID,
             "phoneNumberId": PHONE_NUMBER_ID,
