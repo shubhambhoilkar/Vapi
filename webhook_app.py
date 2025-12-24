@@ -1,22 +1,25 @@
-
 import os
 import uvicorn
 from datetime import datetime
 from typing import Dict, Any
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Body
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel , Field
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Configurations
-MONGO_URI = "mongodb://localhost:27017/"
-DB_NAME = "OCR_Database"
-COLLECTION_NAME = "Vapi_webhook"
+MONGO_URI = os.getenv("MONGO_URI")
+DB_NAME = os.getenv("DB_NAME")
+COLLECTION_NAME_1 = os.getenv("COLLECTION_NAME_1")
+COLLECTION_NAME_2 = os.getenv("COLLECTION_NAME_2")
 
 # Database (mongoDB - Async)
 mongo_client = AsyncIOMotorClient(MONGO_URI)
 db = mongo_client[DB_NAME]
-collcetion = db[COLLECTION_NAME]
+collcetion = db[COLLECTION_NAME_1]
 
 # FastAPI App
 app = FastAPI(title= "Webhook Service", version= "1.0.0")
@@ -29,21 +32,19 @@ class WebhookEvent(BaseModel):
 
 # Webhook Endpoint
 @app.post("/api/webhook")
-async def received_webhook(request: Request):
+async def received_webhook(payload : dict = Body(...)):
     try:
-        payload = await request.json()
+        payload["received_at"] = datetime.utcnow()
+        payload["source"] = "swagger-ui"
+
+        await collcetion.insert_one(payload)
+
+        # return {"message": "Webhook received."}
     except Exception:
         raise HTTPException(status_code=400, detail = "Invalid JSON payload")
     
     if not payload:
         raise HTTPException(status_code= 400, detail="Empty Payload")
-    
-    event = WebhookEvent(
-        source= request.headers.get("user-agent"),
-        payload= payload
-    )
-
-    await collcetion.insert_one(event.model_dump())
 
     return {"message": "Webhook received"}
 
@@ -54,4 +55,4 @@ async def health_check():
 
 # Execution
 if __name__ == "__main__":
-    uvicorn.run("webhok_app:app", host = "localhost" , port= 9900)
+    uvicorn.run("webhook_app:app", host = "localhost" , port= 9900)
