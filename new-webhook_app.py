@@ -3,11 +3,12 @@ import uvicorn
 from typing import Dict, Any
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, Body
-from pymongo import MongoClient
-from dotenv import load_dotenv
 from bson import ObjectId
+from dotenv import load_dotenv
+from pymongo import MongoClient
+from fastapi import FastAPI, HTTPException, Body
 
+# Load Enviornment Variables
 load_dotenv()
 
 # Configurations
@@ -16,13 +17,12 @@ DB_NAME = os.getenv("DB_NAME")
 OBD_ITEMS = os.getenv("OBD_ITEMS")
 OBD_CALLS = os.getenv("OBD_CALLS")
 
-mapping = {"main_sheet": "694baa09b068d6e7232dcb8a"}
-client = MongoClient(MONGO_URI)
+# MONGO DB
 db = client[DB_NAME]
+client = MongoClient(MONGO_URI)
 collection_odb_calls = db[OBD_CALLS]
 collection_odb_call_items = db[OBD_ITEMS]
-
-app = FastAPI(title= "Webhook Service", version= "1.0.0")
+mapping = {"main_sheet": "694baa09b068d6e7232dcb8a"}
 
 # Helper Functions
 def is_valid_object_id(value: str) -> bool:
@@ -32,6 +32,8 @@ def is_valid_object_id(value: str) -> bool:
     except Exception:
         return False
 
+# FASTAPI
+app = FastAPI(title= "Webhook Service", version= "1.0.0")
 # Webhook Endpoint
 @app.post("/api/out-bound-call-item")
 async def out_bound_call_item(payload: Dict[str, Any] = Body(...)):
